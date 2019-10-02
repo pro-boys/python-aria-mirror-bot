@@ -3,6 +3,18 @@ from bot.helper.download_status import DownloadStatus
 
 PROGRESS_MAX_SIZE = 100 // 8
 PROGRESS_INCOMPLETE = ['▏', '▎', '▍', '▌', '▋', '▊', '▉']
+SIZE_UNITS = ['B', 'KB', 'MB', 'GB', 'TB', 'PB']
+
+
+def get_readable_file_size(size_in_bytes) -> str:
+    index = 0
+    while size_in_bytes >= 1024:
+        size_in_bytes /= 1024
+        index += 1
+    try:
+        return f'{size_in_bytes} {SIZE_UNITS[index]}'
+    except IndexError:
+        return 'File too large'
 
 
 def get_download(message_id):
@@ -31,12 +43,21 @@ def get_progress_bar_string(status: DownloadStatus):
     return p_str
 
 
-def get_download_index(_list, gid):
+def get_download_index(_list, gid, uid=None):
     index = 0
-    for i in _list:
-        if i.download().gid == gid:
-            return index
-        index += 1
+    if gid is not None:
+        search = gid
+        for i in _list:
+            if i.download().gid == search:
+                return index
+            index += 1
+    elif uid is not None:
+        for i in _list:
+            if i.uid == uid:
+                return index
+            index += 1
+    else:
+        return -1
 
 
 def get_download_str():

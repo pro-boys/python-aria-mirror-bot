@@ -40,9 +40,10 @@ try:
     BOT_TOKEN = getConfig('BOT_TOKEN')
     parent_id = getConfig('GDRIVE_FOLDER_ID')
     DOWNLOAD_DIR = getConfig('DOWNLOAD_DIR')
-    if DOWNLOAD_DIR[-1] != '/' or DOWNLOAD_DIR[-1] != '\\':
+    if not DOWNLOAD_DIR.endswith('/'):
         DOWNLOAD_DIR = DOWNLOAD_DIR + '/'
     DOWNLOAD_STATUS_UPDATE_INTERVAL = int(getConfig('DOWNLOAD_STATUS_UPDATE_INTERVAL'))
+    MEGA_API_KEY = getConfig('MEGA_API_KEY')
 
 except KeyError as e:
     LOGGER.error("One or more env variables missing! Exiting now")

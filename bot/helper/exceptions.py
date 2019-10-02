@@ -1,2 +1,0 @@
-class DriveAuthError(Exception):
-    pass

@@ -12,10 +12,12 @@ class DownloadStatus:
     STATUS_FAILED = "Failed. Cleaning download"
     STATUS_CANCELLED = "Cancelled"
 
-    def __init__(self, gid, message_id):
+    def __init__(self, gid, message_id, is_mega: bool = False):
         self.__gid = gid
         self.__download = get_download(gid)
-        self.__uid = message_id
+        self.uid = message_id
+        self.__status = self.STATUS_DOWNLOADING
+        self.is_mega = is_mega
 
     def __update(self):
         self.__download = get_download(self.__gid)
@@ -32,9 +34,10 @@ class DownloadStatus:
         return self.__download.name
 
     def path(self):
-        return f"{DOWNLOAD_DIR}{self.__uid}"
+        return f"{DOWNLOAD_DIR}{self.uid}"
 
     def size(self):
+
         return self.__download.total_length_string()
 
     def eta(self):
@@ -63,4 +66,4 @@ class DownloadStatus:
         return self.__download
 
     def uid(self):
-        return self.__uid
+        return self.uid

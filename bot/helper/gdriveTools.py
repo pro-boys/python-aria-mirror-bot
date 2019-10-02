@@ -1,6 +1,7 @@
 from googleapiclient.discovery import build
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
+from google.auth.exceptions import RefreshError
 from googleapiclient.http import MediaFileUpload
 import pickle
 import os
@@ -24,7 +25,10 @@ class GoogleDriveHelper:
         self.__G_DRIVE_DIR_MIME_TYPE = "application/vnd.google-apps.folder"
         self.__G_DRIVE_BASE_DOWNLOAD_URL = "https://drive.google.com/uc?id={}&export=download"
         self.__listener = listener
-        self.__service = self.authorize()
+        try:
+            self.__service = self.authorize()
+        except RefreshError as e:
+            raise e
 
     def upload_file(self, file_path, file_name, mime_type, parent_id):
         # File body description
@@ -131,7 +135,14 @@ class GoogleDriveHelper:
                 credentials = pickle.load(f)
         if credentials is None or not credentials.valid:
             if credentials and credentials.expired and credentials.refresh_token:
-                credentials.refresh(Request())
+                try:
+                    credentials.refresh(Request())
+                except RefreshError as e:
+                    _list = get_download_status_list()
+                    index = get_download_index(_list, None, self.__listener.uid)
+                    self.__listener.onUploadError('There is an internal error in the upload.'
+                                                  ' Please contact the bot owner', _list, index)
+                    raise e
             else:
                 flow = InstalledAppFlow.from_client_secrets_file(
                     'credentials.json', self.__OAUTH_SCOPE)

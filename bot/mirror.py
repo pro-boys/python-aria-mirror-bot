@@ -28,7 +28,10 @@ class MirrorListener(listeners.MirrorListeners):
 
     def onDownloadComplete(self, progress_status_list, index: int):
         LOGGER.info(f"Download completed: {progress_status_list[index].name()}")
-        gdrive = gdriveTools.GoogleDriveHelper(self)
+        try:
+            gdrive = gdriveTools.GoogleDriveHelper(self)
+        except Exception:
+            return
         gdrive.upload(progress_status_list[index].name())
 
     def onDownloadError(self, error, progress_status_list: list, index: int):

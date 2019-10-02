@@ -2,6 +2,9 @@ from time import sleep
 from bot import DOWNLOAD_DIR, DOWNLOAD_STATUS_UPDATE_INTERVAL, aria2
 from .download_status import DownloadStatus
 from .bot_utils import *
+from bot.helper import megadl
+from bot.helper.errors import MegaDownloadError
+from bot import LOGGER
 
 
 class DownloadHelper:
@@ -27,7 +30,17 @@ class DownloadHelper:
         if self.is_url(link):
             if link.endswith('.torrent'):
                 self.__is_torrent = True
-            download = aria2.add_uris([link], {'dir': DOWNLOAD_DIR + str(self.__listener.message.message_id)})
+            elif 'mega.nz' in link:
+                # If it's a mega link, let the mega listeners manage the progress
+                try:
+                    download_dir = f'{DOWNLOAD_DIR}{self.__listener.message.message_id}/'
+                    LOGGER.info(download_dir)
+                    megadl.download(link, f'{DOWNLOAD_DIR}{self.__listener.message.message_id}/', self.__listener)
+                except MegaDownloadError as e:
+                    self.__listener.onDownloadError(str(e), get_download_status_list(), None)
+                return
+            else:
+                download = aria2.add_uris([link], {'dir': DOWNLOAD_DIR + str(self.__listener.message.message_id)})
         elif self.is_magnet(link):
             download = aria2.add_magnet(link, {'dir': DOWNLOAD_DIR + str(self.__listener.message.message_id)})
             self.__is_torrent = True
