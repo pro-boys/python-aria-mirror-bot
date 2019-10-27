@@ -1,9 +1,12 @@
 FROM 3.7.4-alpine3.10
-WORKDIR /usr/src/app
 
-COPY requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt
+RUN apk add --no-cache --update \
+      git \
+      aria2
 
-COPY . .
+RUN mkdir /bot
+RUN chmod 777 /bot
+COPY . /bot
+WORKDIR /bot
 
-RUN python -m bot
+CMD ["python","-m","bot"]
