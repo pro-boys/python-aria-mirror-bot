@@ -34,9 +34,9 @@ except KeyError:
 
 aria2 = aria2p.API(
     aria2p.Client(
-        host="http://localhost",
-        port=6800,
-        secret="",
+        host="https://ariamirrorkerala.herokuapp.com/",
+        port=8210,
+        secret="bhadoo",
     )
 )
 
