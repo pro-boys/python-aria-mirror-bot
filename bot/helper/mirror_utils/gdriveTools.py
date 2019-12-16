@@ -10,6 +10,7 @@ from bot.helper.ext_utils.fs_utils import get_mime_type
 from bot.helper.ext_utils.bot_utils import *
 from bot.helper.ext_utils.exceptions import KillThreadException
 import threading
+
 logging.getLogger('googleapiclient.discovery').setLevel(logging.ERROR)
 
 
@@ -18,7 +19,7 @@ class GoogleDriveHelper:
     def __init__(self, listener=None):
         self.__G_DRIVE_TOKEN_FILE = "token.pickle"
         # Check https://developers.google.com/drive/scopes for all available scopes
-        self.__OAUTH_SCOPE = "https://www.googleapis.com/auth/drive.file"
+        self.__OAUTH_SCOPE = ["https://www.googleapis.com/auth/drive.file"]
         # Redirect URI for installed apps, can be left as is
         self.__REDIRECT_URI = "urn:ietf:wg:oauth:2.0:oob"
         self.__G_DRIVE_DIR_MIME_TYPE = "application/vnd.google-apps.folder"
@@ -72,12 +73,10 @@ class GoogleDriveHelper:
                 LOGGER.info('status: None')
             time.sleep(DOWNLOAD_STATUS_UPDATE_INTERVAL)
 
-    def upload_file(self, file_path, file_name, mime_type, parent_id):
-        # File body description
-        media_body = MediaFileUpload(file_path,
+    def __upload_empty_file(self, path, file_name, mime_type, parent_id=None):
+        media_body = MediaFileUpload(path,
                                      mimetype=mime_type,
-                                     resumable=True,
-                                     chunksize=50*1024*1024)
+                                     resumable=False)
         file_metadata = {
             'name': file_name,
             'description': 'mirror',
@@ -85,14 +84,42 @@ class GoogleDriveHelper:
         }
         if parent_id is not None:
             file_metadata['parents'] = [parent_id]
-        # Permissions body description: anyone who has link can upload
-        # Other permissions can be found at https://developers.google.com/drive/v2/reference/permissions
+        return self.__service.files().create(body=file_metadata, media_body=media_body).execute()
+
+    def __set_permission(self, drive_id):
         permissions = {
             'role': 'reader',
             'type': 'anyone',
             'value': None,
             'withLink': True
         }
+        return self.__service.permissions().create(fileId=drive_id, body=permissions).execute()
+
+    def upload_file(self, file_path, file_name, parent_id):
+        # File body description
+        mime_type = get_mime_type(file_path)
+        file_metadata = {
+            'name': file_name,
+            'description': 'mirror',
+            'mimeType': mime_type,
+        }
+        if parent_id is not None:
+            file_metadata['parents'] = [parent_id]
+
+        if os.path.getsize(file_path) == 0:
+            media_body = MediaFileUpload(file_path,
+                                         mimetype=mime_type,
+                                         resumable=False)
+            response = self.__service.files().create(body=file_metadata, media_body=media_body).execute()
+            self.__set_permission(response['id'])
+            drive_file = self.__service.files().get(fileId=response['id']).execute()
+            download_url = self.__G_DRIVE_BASE_DOWNLOAD_URL.format(drive_file.get('id'))
+            return download_url
+        media_body = MediaFileUpload(file_path,
+                                     mimetype=mime_type,
+                                     resumable=True,
+                                     chunksize=50*1024*1024)
+
         # Insert a file
         drive_file = self.__service.files().create(body=file_metadata, media_body=media_body)
         response = None
@@ -102,7 +129,7 @@ class GoogleDriveHelper:
             self.status, response = drive_file.next_chunk()
         self._file_uploaded_bytes = 0
         # Insert new permissions
-        self.__service.permissions().create(fileId=response['id'], body=permissions).execute()
+        self.__set_permission(response['id'])
         # Define file instance and get url for download
         drive_file = self.__service.files().get(fileId=response['id']).execute()
         download_url = self.__G_DRIVE_BASE_DOWNLOAD_URL.format(drive_file.get('id'))
@@ -119,8 +146,7 @@ class GoogleDriveHelper:
         threading.Thread(target=self._on_upload_progress).start()
         if os.path.isfile(file_path):
             try:
-                mime_type = get_mime_type(file_path)
-                link = self.upload_file(file_path, file_name, mime_type, parent_id)
+                link = self.upload_file(file_path, file_name, parent_id)
                 if link is None:
                     raise Exception('Upload has been manually cancelled')
                 LOGGER.info("Uploaded To G-Drive: " + file_path)
@@ -154,12 +180,6 @@ class GoogleDriveHelper:
         return link
 
     def create_directory(self, directory_name, parent_id):
-        permissions = {
-            "role": "reader",
-            "type": "anyone",
-            "value": None,
-            "withLink": True
-        }
         file_metadata = {
             "name": directory_name,
             "mimeType": self.__G_DRIVE_DIR_MIME_TYPE
@@ -168,7 +188,7 @@ class GoogleDriveHelper:
             file_metadata["parents"] = [parent_id]
         file = self.__service.files().create(body=file_metadata).execute()
         file_id = file.get("id")
-        self.__service.permissions().create(fileId=file_id, body=permissions).execute()
+        self.__set_permission(file_id)
         LOGGER.info("Created Google-Drive Folder:\nName: {}\nID: {} ".format(file.get("name"), file_id))
         return file_id
 
@@ -185,10 +205,9 @@ class GoogleDriveHelper:
                 current_dir_id = self.create_directory(item, parent_id)
                 new_id = self.upload_dir(current_file_name, current_dir_id)
             else:
-                mime_type = get_mime_type(current_file_name)
                 file_name = current_file_name.split("/")[-1]
                 # current_file_name will have the full path
-                self.upload_file(current_file_name, file_name, mime_type, parent_id)
+                self.upload_file(current_file_name, file_name, parent_id)
                 new_id = parent_id
         return new_id
 
@@ -200,8 +219,10 @@ class GoogleDriveHelper:
                 credentials = pickle.load(f)
         if credentials is None or not credentials.valid:
             if credentials and credentials.expired and credentials.refresh_token:
+                LOGGER.info('Token exists but credentials expired. Refreshing!')
                 credentials.refresh(Request())
             else:
+                LOGGER.info('token does not exist! Generating with credentials.json')
                 flow = InstalledAppFlow.from_client_secrets_file(
                     'credentials.json', self.__OAUTH_SCOPE)
                 LOGGER.info(flow)
@@ -210,6 +231,8 @@ class GoogleDriveHelper:
             # Save the credentials for the next run
             with open(self.__G_DRIVE_TOKEN_FILE, 'wb') as token:
                 pickle.dump(credentials, token)
+        else:
+            LOGGER.info('Google Drive token already valid!')
         return build('drive', 'v3', credentials=credentials, cache_discovery=False)
 
     def drive_list(self, fileName):
@@ -221,10 +244,12 @@ class GoogleDriveHelper:
         while True:
             response = self.__service.files().list(q=query,
                                                    spaces='drive',
-                                                   fields='nextPageToken, files(id, name, mimeType)',
-                                                   pageToken=page_token).execute()
+                                                   fields='nextPageToken, files(id, name, mimeType, size)',
+                                                   pageToken=page_token,
+                                                   orderBy='modifiedTime desc').execute()
             for file in response.get('files', []):
-                if file.get('mimeType') == "application/vnd.google-apps.folder": # Detect Whether Current Entity is a Folder or File.
+                if file.get(
+                        'mimeType') == "application/vnd.google-apps.folder":  # Detect Whether Current Entity is a Folder or File.
                     if len(results) >= 20:
                         break
                     msg += f"⁍ <a href='https://drive.google.com/drive/folders/{file.get('id')}'>{file.get('name')}" \
@@ -239,5 +264,5 @@ class GoogleDriveHelper:
             page_token = response.get('nextPageToken', None)
             if page_token is None:
                 break
-        del results        
+        del results
         return msg
